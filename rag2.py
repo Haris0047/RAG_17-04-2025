@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Optional,List
 
 from dotenv import load_dotenv
 from pymongo import MongoClient
@@ -51,7 +51,7 @@ def format_docs(docs_with_scores):
 # ========== Tool Input Schema ==========
 class FilingQueryInput(BaseModel):
     ticker: Optional[str] = Field(description="The stock ticker, e.g., AAPL")
-    filling_type: Optional[str] = Field(description="Filing type like 10-K, 10-Q, 8-K")
+    filling_type: Optional[List[str]] = Field(description="List of filing types like ['10-K', '10-Q', '8-K']")
     date_from: Optional[str] = Field(description="Start of date range (YYYY-MM-DD)")
     date_to: Optional[str] = Field(description="End of date range (YYYY-MM-DD)")
     last_n_years: Optional[int] = Field(description="Number of years to look back from today")
@@ -86,7 +86,11 @@ def get_filing_documents(
     if ticker:
         filter["ticker"] = {"$eq": ticker.upper()}
     if filling_type:
-        filter["filling_type"] = {"$eq": filling_type.upper()}
+        if isinstance(filling_type, list):
+            filter["filling_type"] = {"$in": [ft.upper() for ft in filling_type]}
+        else:
+            filter["filling_type"] = {"$eq": filling_type.upper()}
+
 
     # Flexible date filtering
     if last_n_years:
@@ -169,7 +173,7 @@ def get_earnings_transcripts(
 
 # ========== Prompt + Agent ==========
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a financial assistant that retrieves SEC filing and earning data using metadata filters."),
+    ("system", "You are a financial assistant that retrieves multiple SEC filings (10-K,10-Q and 8-K) and earning data using metadata filters."),
     MessagesPlaceholder(variable_name="chat_history"),
     ("user", "{input}"),
     MessagesPlaceholder(variable_name="agent_scratchpad"),
@@ -180,7 +184,7 @@ agent_executor = AgentExecutor(agent=agent, tools=[get_filing_documents,get_earn
 
 # ========== Run an example ==========
 query = {
-    "input": "how apple is performing in the last 2 years. Explain with numbers like eps.",
+    "input": "what are the net sales of apple in america in the first q of 2024 and overall iphone sales",
     "chat_history": [],
     "agent_scratchpad": ""
 }
