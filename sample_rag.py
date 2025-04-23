@@ -173,7 +173,7 @@ if __name__ == "__main__":
 
     _printed = set()
     events = graph.stream(
-        {"messages": ("user", 'how is the weather of karachi and how its stock market is performing?')}, config, stream_mode="values"
+        {"messages": ("user", 'how is the weather of karachi and how apple is performing?')}, config, stream_mode="values"
     )
     for event in events:
         _print_event(event, _printed)

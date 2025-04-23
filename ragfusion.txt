@@ -1,0 +1,59 @@
+Without RAG Fusion:
+{
+    "response": "Apple's recent sales performance in China has faced notable challenges:\n\n- 
+    According to Apple's latest earnings call, revenue in Greater China was down 11% year-over-year for the most recent quarter. 
+    Over half of this decline was attributed to changes in channel inventory, 
+    and currency effects accounted for more than 50% of the year-over-year drop. On a constant currency basis, 
+    the decline was less than 3%. iPhone sales in Mainland China were down mid-single digits, 
+    but Apple did set a record for the installed base and saw strong growth in upgraders. 
+    Four of the top six smartphone models in urban China were iPhones, 
+    indicating continued brand strength despite the overall contraction. 
+    iPad sales returned to growth in Greater China during the quarter. 
+    Apple remains confident in its long-term prospects in China, 
+    even as it faces intense competition and market volatility (Apple Q3 2024 Earnings Call).\n\n- 
+    Recent news and analyst commentary reinforce these trends. 
+    UBS noted that iPhone sell-through in China dropped 17% year-over-year in February 2024, 
+    reflecting increased competitive pressure and market share loss. 
+    This is a sharper decline than in other regions, 
+    and the tepid response to new product launches (such as the latest SE model) has contributed to the softness. 
+    While Apple is seeing growth in India and other emerging markets, 
+    China remains a challenging environment in the near term (UBS, May 2024).\n\n- 
+    Geopolitical tensions and new tariffs are also impacting Apple’s China business. 
+    The company is working to diversify its supply chain away from China, 
+    but progress has been slow due to infrastructure and regulatory hurdles. 
+    Rising tariffs and trade war risks could further pressure Apple’s costs and demand in China (recent news, June 2024).\n\n
+    In summary, Apple’s sales in China have declined recently, 
+    especially for iPhones, due to competitive pressures, currency effects, and broader economic and geopolitical challenges.
+    However, the company continues to see strong brand loyalty and growth in its installed base, 
+    and remains optimistic about its long-term position in the Chinese market.\n\n
+    References:\n- Apple Q3 2024 Earnings Call Transcript\n- UBS Analyst Commentary, May 2024\n- 
+    Recent news on Apple’s China supply chain and tariff impacts, June 2024"
+}
+
+With RAG Fusion:
+{
+    "response": "Apple's recent sales performance in China has faced notable challenges:\n\n- 
+    According to Apple's latest earnings call, revenue in Greater China was down 11% year-over-year for the most recent quarter. 
+    Over half of this decline was attributed to changes in channel inventory, and currency effects accounted for more than 50% 
+    of the year-over-year drop. On a constant currency basis, the decline was less than 3%. 
+    iPhone sales in Mainland China were down mid-single digits, 
+    but Apple did set a record for the installed base and saw strong growth in upgraders. 
+    Four of the top six smartphone models in urban China were iPhones, 
+    indicating continued brand strength despite the overall contraction. 
+    iPad sales returned to growth in Greater China during the quarter. 
+    Apple remains confident in its long-term prospects in China, 
+    even as it faces intense competition and market volatility (Apple Q3 2024 Earnings Call).\n\n- 
+    Recent news and analyst commentary reinforce these trends. 
+    UBS noted that iPhone sell-through in China dropped 17% year-over-year in February 2024, 
+    with Apple losing market share in the region. This decline was more pronounced than in other major markets, 
+    reflecting increased competitive pressure. While Apple gained share in the U.S. and saw growth in India and other emerging markets, 
+    China remains a challenging environment for sales growth (UBS, May 2024).\n\n- 
+    Geopolitical tensions and new U.S. tariffs on Chinese imports are also impacting Apple's cost structure and supply chain, 
+    adding further headwinds to its China business. Apple is working to diversify its manufacturing base, 
+    but China still accounts for about 40% of its production capacity (recent news analysis, June 2024).\n\n
+    In summary, Apple is experiencing a sales slowdown in China, driven by competitive pressures, 
+    currency effects, and broader economic and geopolitical factors. 
+    However, the company continues to see strong brand loyalty and growth in its installed base, 
+    suggesting resilience over the long term.\n\nReferences:\n- Apple Q3 2024 Earnings Call Transcript\n- 
+    UBS Analyst Note, May 2024\n- Recent news analysis on Apple’s China operations and supply chain (June 2024)"
+}

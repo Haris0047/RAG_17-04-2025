@@ -56,21 +56,6 @@ llm = ChatOpenAI(model_name="gpt-4.1", temperature=0, openai_api_key=OPENAI_API_
 def format_docs(docs_with_scores):
     return "\n\n".join(doc.page_content for doc, _ in docs_with_scores)
 
-class FilingQueryInput(LCBaseModel):
-    ticker: Optional[str] = Field(description="The stock ticker, e.g., AAPL")
-    filling_type: Optional[List[str]] = Field(description="List of filing types like ['10-K', '10-Q', '8-K']")
-    date_from: Optional[str] = Field(description="Start of date range (YYYY-MM-DD)")
-    date_to: Optional[str] = Field(description="End of date range (YYYY-MM-DD)")
-    last_n_years: Optional[int] = Field(description="Number of years to look back from today")
-    desc: Optional[str] = Field(description="Main search description or question")
-
-class EarningsQueryInput(LCBaseModel):
-    ticker: Optional[str] = Field(description="The stock ticker symbol, e.g., AAPL")
-    quarter: Optional[str] = Field(description="The earnings quarter, e.g., Q1, Q2, Q3, Q4")
-    date_from: Optional[str] = Field(description="Start date (YYYY-MM-DD)")
-    date_to: Optional[str] = Field(description="End date (YYYY-MM-DD)")
-    last_n_years: Optional[int] = Field(description="How many years back to search")
-    desc: Optional[str] = Field(description="Search description or keyword")
     
 class NewsQueryInput(LCBaseModel):
     ticker: Optional[str] = Field(description="The stock ticker symbol, e.g., AAPL")
@@ -79,83 +64,69 @@ class NewsQueryInput(LCBaseModel):
     date_to: Optional[str] = Field(description="End date (YYYY-MM-DD)")
     desc: Optional[str] = Field(description="Search description or keyword")
 
+class CompanyDisclosureQueryInput(LCBaseModel):
+    ticker: Optional[str] = Field(description="The stock ticker symbol, e.g., AAPL")
+    filling_type: Optional[List[str]] = Field(description="List of filing types like ['10-K', '10-Q']")
+    quarter: Optional[str] = Field(description="The earnings quarter, e.g., Q1, Q2")
+    date_from: Optional[str] = Field(description="Start date (YYYY-MM-DD)")
+    date_to: Optional[str] = Field(description="End date (YYYY-MM-DD)")
+    last_n_years: Optional[int] = Field(description="How many years back to search")
+    desc: Optional[str] = Field(description="Search description or keyword")
 
-@tool(args_schema=FilingQueryInput)
-def get_filing_documents(**kwargs) -> str:
+
+@tool(args_schema=CompanyDisclosureQueryInput)
+def get_company_disclosures(**kwargs) -> str:
     """
-    Retrieves SEC filings based on metadata filters: ticker, filing type, and flexible date ranges.
-    Can filter between two dates or use 'last N years' from today.
+    Retrieves both SEC filings (10-K, 10-Q, etc.) and earnings call transcripts using metadata filters and semantic relevance.
     """
-    filter = {}
+    filter_common = {}
     ticker = kwargs.get("ticker")
     filling_type = kwargs.get("filling_type")
-    date_from = kwargs.get("date_from")
-    date_to = kwargs.get("date_to")
-    last_n_years = kwargs.get("last_n_years")
-    desc = kwargs.get("desc")
-
-    if ticker:
-        filter["ticker"] = {"$eq": ticker.upper()}
-    if filling_type:
-        filter["filling_type"] = {"$in": [ft.upper() for ft in filling_type]}
-
-    if last_n_years:
-        now = datetime.now()
-        start = datetime(now.year - last_n_years, 1, 1)
-        end = now
-        filter["date"] = {"$gte": start, "$lte": end}
-    elif date_from and date_to:
-        filter["date"] = {"$gte": datetime.fromisoformat(date_from), "$lte": datetime.fromisoformat(date_to)}
-    elif date_from:
-        filter["date"] = {"$gte": datetime.fromisoformat(date_from)}
-    elif date_to:
-        filter["date"] = {"$lte": datetime.fromisoformat(date_to)}
-
-    results = vector_store_fillings.similarity_search_with_score(query=desc or "", k=5, pre_filter=filter)
-    
-    print(filter)
-    print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ filings")
-    print(results)
-    
-    return format_docs(results)
-
-@tool(args_schema=EarningsQueryInput)
-def get_earnings_transcripts(**kwargs) -> str:
-    """
-    Retrieves earnings call transcripts based on ticker, quarter, and date filters.
-    Allows filtering by last N years or a specific date range.
-    """
-    filter = {}
-    ticker = kwargs.get("ticker")
     quarter = kwargs.get("quarter")
     date_from = kwargs.get("date_from")
     date_to = kwargs.get("date_to")
     last_n_years = kwargs.get("last_n_years")
-    desc = kwargs.get("desc")
+    desc = kwargs.get("desc") or ""
+
+    # Build date filter
+    now = datetime.now()
+    if last_n_years:
+        start = datetime(now.year - last_n_years, 1, 1)
+        filter_common["date"] = {"$gte": start, "$lte": now}
+    elif date_from and date_to:
+        filter_common["date"] = {"$gte": datetime.fromisoformat(date_from), "$lte": datetime.fromisoformat(date_to)}
+    elif date_from:
+        filter_common["date"] = {"$gte": datetime.fromisoformat(date_from)}
+    elif date_to:
+        filter_common["date"] = {"$lte": datetime.fromisoformat(date_to)}
 
     if ticker:
-        filter["ticker"] = {"$eq": ticker.upper()}
+        filter_common["ticker"] = {"$eq": ticker.upper()}
+
+    # Filters specific to filings
+    filter_filings = dict(filter_common)
+    if filling_type:
+        filter_filings["filling_type"] = {"$in": [ft.upper() for ft in filling_type]}
+
+    # Filters specific to earnings
+    filter_earnings = dict(filter_common)
     if quarter:
-        filter["quarter"] = {"$eq": quarter.upper()}
+        filter_earnings["quarter"] = {"$eq": quarter.upper()}
 
-    if last_n_years:
-        now = datetime.now()
-        start = datetime(now.year - last_n_years, 1, 1)
-        filter["date"] = {"$gte": start, "$lte": now}
-    elif date_from and date_to:
-        filter["date"] = {"$gte": datetime.fromisoformat(date_from), "$lte": datetime.fromisoformat(date_to)}
-    elif date_from:
-        filter["date"] = {"$gte": datetime.fromisoformat(date_from)}
-    elif date_to:
-        filter["date"] = {"$lte": datetime.fromisoformat(date_to)}
+    # Vector search on both
+    filings_results = vector_store_fillings.similarity_search_with_score(desc, k=5, pre_filter=filter_filings)
+    earnings_results = vector_store_earnings.similarity_search_with_score(desc, k=5, pre_filter=filter_earnings)
 
-    results = vector_store_earnings.similarity_search_with_score(query=desc or "", k=5, pre_filter=filter)
+    # Merge and sort by similarity score
+    combined = filings_results + earnings_results
+    combined_sorted = sorted(combined, key=lambda x: x[1], reverse=True)[:5]
+
+    print("Filter (Common):", filter_common)
+    print("Combined Disclosure Results >>>>", combined_sorted)
+
+    return format_docs(combined_sorted)
+
     
-    print(filter)
-    print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ earnings")
-    print(results)
-    
-    return format_docs(results)
 
 @tool(args_schema=NewsQueryInput)
 def get_news_articles(**kwargs) -> str:
@@ -204,14 +175,15 @@ def get_news_articles(**kwargs) -> str:
 
 # Prompt Template
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a financial assistant that retrieves multiple SEC filings (10-K,10-Q and 8-K), earning data and latest news of stocks using metadata filters. Answer user query citing to the given filings, earnings or news."),
+    ("system", "You are a financial assistant that retrieves multiple SEC filings (10-K,10-Q and 8-K), earning data and latest news of stocks using metadata filters. Answer user query citing to the given filings, earnings or news with proper reference."),
     MessagesPlaceholder(variable_name="chat_history"),
     ("user", "{input}"),
     MessagesPlaceholder(variable_name="agent_scratchpad"),
 ])
 
-agent = create_tool_calling_agent(llm, [get_filing_documents, get_earnings_transcripts,get_news_articles], prompt)
-agent_executor = AgentExecutor(agent=agent, tools=[get_filing_documents, get_earnings_transcripts,get_news_articles])
+agent = create_tool_calling_agent(llm, [get_company_disclosures, get_news_articles], prompt)
+agent_executor = AgentExecutor(agent=agent, tools=[get_company_disclosures, get_news_articles])
+
 
 # FastAPI Setup
 app = FastAPI()
