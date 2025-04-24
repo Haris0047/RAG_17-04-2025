@@ -419,4 +419,4 @@ async def query_handler(req: QueryRequest):
     return {"response": response}
 
 if __name__ == "__main__":
-    uvicorn.run("rag5:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run("agentic_rag_parallel:app", host="0.0.0.0", port=8000, reload=True) 
