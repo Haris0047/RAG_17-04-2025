@@ -175,11 +175,24 @@ def get_news_articles(**kwargs) -> str:
 
 # Prompt Template
 prompt = ChatPromptTemplate.from_messages([
-    ("system", "You are a financial assistant that retrieves multiple SEC filings (10-K,10-Q and 8-K), earning data and latest news of stocks using metadata filters. Answer user query citing to the given filings, earnings or news with proper reference."),
+    ("system", 
+     "You are a financial assistant that retrieves:\n"
+     "- SEC filings (10-K, 10-Q, 8-K),\n"
+     "- Earnings transcripts,\n"
+     "- News articles from verified sources,\n"
+     "using metadata filters and semantic search.\n\n"
+     "When answering the user query:\n"
+     "• Always mention the **exact SEC filing type** (e.g., '10-Q')\n"
+     "• Always **name the news source** (e.g., 'CNBC', 'Reuters') in the response\n"
+     "• If possible, include **filing dates or quarters** (e.g., 'Q4 2023')\n"
+     "• Clearly cite whether the insight came from a **filing**, **earnings call**, or **news article**\n\n"
+     "Format your response in a professional tone, clearly distinguishing each source of information.\n"
+    ),
     MessagesPlaceholder(variable_name="chat_history"),
     ("user", "{input}"),
     MessagesPlaceholder(variable_name="agent_scratchpad"),
 ])
+
 
 agent = create_tool_calling_agent(llm, [get_company_disclosures, get_news_articles], prompt)
 agent_executor = AgentExecutor(agent=agent, tools=[get_company_disclosures, get_news_articles])
