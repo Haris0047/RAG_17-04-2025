@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
-
+from collections import defaultdict
 
 import os
 load_dotenv()
@@ -183,33 +183,68 @@ def generate_query_variants(query: str, llm) -> List[str]:
 #             break
 #     return fused
 
-def rag_fusion_search_parallel(vector_store, queries, k=5, filter=None):
-    results = []
+# Raw cosine similarity from individual queries, sorted globally, deduplicated, and top-k taken.
+# def rag_fusion_search_parallel(vector_store, queries, k=5, filter=None):
+#     results = []
 
+#     def search_one_query(q):
+#         now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+#         print(f"[{now}] [Thread {threading.get_ident()}] Running query: {q}")
+#         return vector_store.similarity_search_with_score(q, k=k, pre_filter=filter or {})
+
+#     with ThreadPoolExecutor() as executor:
+#         futures = [executor.submit(search_one_query, q) for q in queries]
+#         for future in as_completed(futures):
+#             try:
+#                 results.extend(future.result())
+#             except Exception as e:
+#                 print(f"Error during query execution: {e}")
+
+#     # Deduplicate and sort
+#     seen = set()
+#     fused = []
+#     for doc, score in sorted(results, key=lambda x: x[1], reverse=True):
+#         if doc.page_content not in seen:
+#             fused.append((doc, score))
+#             seen.add(doc.page_content)
+#         if len(fused) >= k:
+#             break
+
+#     return fused
+
+
+
+def rag_fusion_rrf(vector_store, queries, k=5, filter=None, rrf_k=60):
+    results_by_query = []
+
+    # Step 1: Retrieve for each query
     def search_one_query(q):
-        now = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
-        print(f"[{now}] [Thread {threading.get_ident()}] Running query: {q}")
         return vector_store.similarity_search_with_score(q, k=k, pre_filter=filter or {})
 
     with ThreadPoolExecutor() as executor:
         futures = [executor.submit(search_one_query, q) for q in queries]
         for future in as_completed(futures):
             try:
-                results.extend(future.result())
+                results_by_query.append(future.result())
             except Exception as e:
                 print(f"Error during query execution: {e}")
 
-    # Deduplicate and sort
-    seen = set()
-    fused = []
-    for doc, score in sorted(results, key=lambda x: x[1], reverse=True):
-        if doc.page_content not in seen:
-            fused.append((doc, score))
-            seen.add(doc.page_content)
-        if len(fused) >= k:
-            break
+    # Step 2: Apply RRF
+    rrf_scores = defaultdict(float)
+    doc_map = {}
 
-    return fused
+    for result_list in results_by_query:
+        for rank, (doc, _) in enumerate(result_list):
+            doc_id = doc.page_content
+            rrf_scores[doc_id] += 1 / (rank + 1 + rrf_k)
+            doc_map[doc_id] = doc  # store doc only once
+
+    # Step 3: Sort and return top-k
+    ranked_docs = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    final_results = [(doc_map[doc_id], score) for doc_id, score in ranked_docs[:k]]
+
+    return final_results
+
 
 def fetch_all_sources(vector_store_tasks: dict, queries: list, k: int = 5) -> dict:
     """
@@ -230,7 +265,7 @@ def fetch_all_sources(vector_store_tasks: dict, queries: list, k: int = 5) -> di
     """
     with ThreadPoolExecutor() as executor:
         futures = {
-            name: executor.submit(rag_fusion_search_parallel, store, queries, k, _filter)
+            name: executor.submit(rag_fusion_rrf, store, queries, k, _filter)
             for name, (store, _filter) in vector_store_tasks.items()
         }
         return {name: future.result() for name, future in futures.items()}
@@ -333,7 +368,7 @@ def get_news_articles(**kwargs) -> str:
         week_ago = now - timedelta(days=7)
         filter["date"] = {"$gte": week_ago, "$lte": now}
 
-    results = rag_fusion_search_parallel(vector_store_news, query_variants, k=5, filter=filter)
+    results = rag_fusion_rrf(vector_store_news, query_variants, k=5, filter=filter)
 
     print(filter)
     print("$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$$ news")
