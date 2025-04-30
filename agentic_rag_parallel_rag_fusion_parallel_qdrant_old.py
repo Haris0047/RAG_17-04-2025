@@ -22,14 +22,12 @@ from qdrant_client import QdrantClient
 from langchain_community.vectorstores import Qdrant as QdrantVectorStore
 from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny, Range,MatchText
 from qdrant_client.http.models import DatetimeRange
-from qdrant_client.http.models import SearchRequest
 from dotenv import load_dotenv
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
 import re
-from langchain.schema import Document
 
 import os
 load_dotenv()
@@ -261,53 +259,36 @@ def generate_query_variants(query: str, llm) -> List[str]:
 
 
 def rag_fusion_rrf(vector_store, queries, k=5, filter=None, rrf_k=60):
-    # 1) Underlying client & collection
-    client          = vector_store.client
-    collection_name = vector_store.collection_name
+    results_by_query = []
 
-    # 2) Embed all queries
-    embeddings = [vector_store.embeddings.embed_query(q) for q in queries]
+    # Step 1: Retrieve for each query
+    def search_one_query(q):
+        return vector_store.similarity_search_with_score(q, k=k, filter=filter or {})
 
-    # 3) Build batch search requests
-    requests = [
-        SearchRequest(
-            vector=vec,
-            limit=k,
-            filter=filter,
-            with_payload=True,
-            with_vector=False
-        )
-        for vec in embeddings
-    ]
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(search_one_query, q) for q in queries]
+        for future in as_completed(futures):
+            try:
+                results_by_query.append(future.result())
+            except Exception as e:
+                print(f"Error during query execution: {e}")
 
-    # 4) Execute batch search
-    batch_results = client.search_batch(
-        collection_name=collection_name,
-        requests=requests
-    )  # -> List[List[ScoredPoint]]
-
-    # 5) RRF fusion
+    # Step 2: Apply RRF
     rrf_scores = defaultdict(float)
-    doc_map    = {}
+    doc_map = {}
 
-    for result_list in batch_results:
-        for rank, pt in enumerate(result_list):
-            # Extract the text and metadata from payload
-            text     = pt.payload.get("content", "")
-            metadata = {k: v for k, v in pt.payload.items() if k != "content"}
-            metadata["_id"] = pt.id
+    for result_list in results_by_query:
+        for rank, (doc, _) in enumerate(result_list):
+            doc_id = doc.page_content
+            rrf_scores[doc_id] += 1 / (rank + 1 + rrf_k)
+            doc_map[doc_id] = doc  # store doc only once
 
-            # Use text as the fusion key (or pt.id if you prefer)
-            key = text  
+    # Step 3: Sort and return top-k
+    ranked_docs = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    final_results = [(doc_map[doc_id], score) for doc_id, score in ranked_docs[:k]]
 
-            # Accumulate RRF score
-            rrf_scores[key] += 1.0 / (rank + 1 + rrf_k)
-            # Store a LangChain Document for that key
-            doc_map[key] = Document(page_content=text, metadata=metadata)
+    return final_results
 
-    # 6) Pick top-k results
-    top = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
-    return [(doc_map[key], score) for key, score in top]
 
 def fetch_all_sources(vector_store_tasks: dict, queries: list, k: int = 5) -> dict:
     """
@@ -670,4 +651,4 @@ async def query_handler(req: QueryRequest):
     return {"response": response}
 
 if __name__ == "__main__":
-    uvicorn.run("agentic_rag_parallel_rag_fusion_parallel_qdrant_2:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run("agentic_rag_parallel_rag_fusion_parallel_qdrant_old.py:app", host="0.0.0.0", port=8000, reload=True) 

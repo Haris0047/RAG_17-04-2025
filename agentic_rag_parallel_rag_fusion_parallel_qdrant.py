@@ -179,7 +179,7 @@ def generate_query_variants(query: str, llm) -> List[str]:
     prompt = f"""
     You are helping to improve search relevance in a financial assistant system.
     
-    Given the user query: "{query}", generate 3 rephrased versions that:
+    Given the user query: "{query}", generate only 3 rephrased versions that:
     1. Ask the same question in different ways
     2. Vary the phrasing enough to trigger different semantic matches
     3. Are optimized for retrieving financial documents

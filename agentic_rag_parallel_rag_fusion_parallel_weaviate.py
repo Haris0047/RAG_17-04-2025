@@ -1,69 +1,72 @@
-# Imports
-from datetime import datetime
-import random
-from typing import Annotated
-from typing_extensions import TypedDict
-from fastapi import FastAPI, Request
-import uvicorn
-from langchain_openai import OpenAIEmbeddings, ChatOpenAI
-from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.tools import tool
-from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
-from langchain_core.messages import ToolMessage,AIMessage
-from langgraph.graph import StateGraph, START, END
-from langgraph.prebuilt import ToolNode, tools_condition
-from langgraph.graph.message import AnyMessage, add_messages
-from langgraph.checkpoint.memory import MemorySaver
-from pydantic import BaseModel
-from langchain.pydantic_v1 import BaseModel as LCBaseModel, Field
-from typing import List, Optional
-from datetime import datetime,timedelta
-from qdrant_client import QdrantClient
-from langchain_community.vectorstores import Qdrant as QdrantVectorStore
-from qdrant_client.models import Filter, FieldCondition, MatchValue, MatchAny, Range,MatchText
-from qdrant_client.http.models import DatetimeRange
-from qdrant_client.http.models import SearchRequest
-from dotenv import load_dotenv
+from datetime import datetime, timedelta
+from typing import Annotated, List, Optional
+import os
+import re
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
-import re
-from langchain.schema import Document
 
-import os
+from fastapi import FastAPI
+import uvicorn
+from pydantic.v1 import BaseModel as LCBaseModel, Field
+from pydantic import BaseModel
+
+import weaviate
+from langchain_openai import OpenAIEmbeddings, ChatOpenAI
+# from langchain_community.vectorstores import Weaviate as WeaviateVectorStore
+from langchain_weaviate import WeaviateVectorStore
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
+from langchain_core.tools import tool
+from langchain_core.runnables import Runnable, RunnableConfig, RunnableLambda
+from langchain_core.messages import ToolMessage, AIMessage
+from langgraph.graph import StateGraph, START, END
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.graph.message import AnyMessage, add_messages
+from typing_extensions import TypedDict
+from weaviate.collections.classes.filters import Filter
+
+# Load environment
+from dotenv import load_dotenv
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-MONGO_URI = os.getenv("MONGO_URI")
 
-# MongoDB setup
-qdrant_client = QdrantClient(url="http://localhost:6333")
+# ──────────────────────────────────────────────────────────────────────────────
+# Weaviate client
+# Connect to your local Weaviate (Docker) instance
+client = weaviate.connect_to_local()
+assert client.is_ready()
 
-# Embedding & Vector Store
-embedding_model = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 
-vector_store_fillings = QdrantVectorStore(
-    client=qdrant_client,
-    collection_name="fillings",
-    embeddings=embedding_model,
-    content_payload_key="content",    # for content lookup
-)
-
-vector_store_earnings = QdrantVectorStore(
-    client=qdrant_client,
-    collection_name="earnings",
-    embeddings=embedding_model,
-    content_payload_key="content",
-)
-
-vector_store_news = QdrantVectorStore(
-    client=qdrant_client,
-    collection_name="news",
-    embeddings=embedding_model,
-    content_payload_key="content",
-)
-# Chat LLM
+# Embeddings and LLM
+embeddings = OpenAIEmbeddings(openai_api_key=OPENAI_API_KEY)
 llm = ChatOpenAI(model_name="gpt-4.1", temperature=0, openai_api_key=OPENAI_API_KEY)
+
+# Instantiate LangChain Weaviate vector stores (classes assumed to exist)
+vector_store_fillings = WeaviateVectorStore(
+    client=client,
+    index_name="Fillings",
+    text_key="content",
+    embedding=embeddings,
+    attributes=["ticker", "date", "filling_type"]
+)
+
+vector_store_earnings = WeaviateVectorStore(
+    client=client,
+    index_name="Earnings",
+    text_key="content",
+    embedding=embeddings,
+    attributes=["ticker","date","quarter"]
+)
+
+vector_store_news = WeaviateVectorStore(
+    client=client,
+    index_name="News",
+    text_key="content",
+    embedding=embeddings,
+    attributes=["ticker","date","url","title","publisher","site"]
+)
+
 
 # Define State
 class ParallelState(TypedDict):
@@ -181,7 +184,7 @@ def generate_query_variants(query: str, llm) -> List[str]:
     prompt = f"""
     You are helping to improve search relevance in a financial assistant system.
     
-    Given the user query: "{query}", generate 3 rephrased versions that:
+    Given the user query: "{query}", generate only 3 rephrased versions that:
     1. Ask the same question in different ways
     2. Vary the phrasing enough to trigger different semantic matches
     3. Are optimized for retrieving financial documents
@@ -261,53 +264,36 @@ def generate_query_variants(query: str, llm) -> List[str]:
 
 
 def rag_fusion_rrf(vector_store, queries, k=5, filter=None, rrf_k=60):
-    # 1) Underlying client & collection
-    client          = vector_store.client
-    collection_name = vector_store.collection_name
+    results_by_query = []
 
-    # 2) Embed all queries
-    embeddings = [vector_store.embeddings.embed_query(q) for q in queries]
+    # Step 1: Retrieve for each query
+    def search_one_query(q):
+        return vector_store.similarity_search_with_score(q, k=k, filters=filter or {})
 
-    # 3) Build batch search requests
-    requests = [
-        SearchRequest(
-            vector=vec,
-            limit=k,
-            filter=filter,
-            with_payload=True,
-            with_vector=False
-        )
-        for vec in embeddings
-    ]
+    with ThreadPoolExecutor() as executor:
+        futures = [executor.submit(search_one_query, q) for q in queries]
+        for future in as_completed(futures):
+            try:
+                results_by_query.append(future.result())
+            except Exception as e:
+                print(f"Error during query execution: {e}")
 
-    # 4) Execute batch search
-    batch_results = client.search_batch(
-        collection_name=collection_name,
-        requests=requests
-    )  # -> List[List[ScoredPoint]]
-
-    # 5) RRF fusion
+    # Step 2: Apply RRF
     rrf_scores = defaultdict(float)
-    doc_map    = {}
+    doc_map = {}
 
-    for result_list in batch_results:
-        for rank, pt in enumerate(result_list):
-            # Extract the text and metadata from payload
-            text     = pt.payload.get("content", "")
-            metadata = {k: v for k, v in pt.payload.items() if k != "content"}
-            metadata["_id"] = pt.id
+    for result_list in results_by_query:
+        for rank, (doc, _) in enumerate(result_list):
+            doc_id = doc.page_content
+            rrf_scores[doc_id] += 1 / (rank + 1 + rrf_k)
+            doc_map[doc_id] = doc  # store doc only once
 
-            # Use text as the fusion key (or pt.id if you prefer)
-            key = text  
+    # Step 3: Sort and return top-k
+    ranked_docs = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)
+    final_results = [(doc_map[doc_id], score) for doc_id, score in ranked_docs[:k]]
 
-            # Accumulate RRF score
-            rrf_scores[key] += 1.0 / (rank + 1 + rrf_k)
-            # Store a LangChain Document for that key
-            doc_map[key] = Document(page_content=text, metadata=metadata)
+    return final_results
 
-    # 6) Pick top-k results
-    top = sorted(rrf_scores.items(), key=lambda x: x[1], reverse=True)[:k]
-    return [(doc_map[key], score) for key, score in top]
 
 def fetch_all_sources(vector_store_tasks: dict, queries: list, k: int = 5) -> dict:
     """
@@ -338,97 +324,96 @@ def fetch_all_sources(vector_store_tasks: dict, queries: list, k: int = 5) -> di
 def get_company_disclosures(**kwargs) -> str:
     """
     Retrieves both SEC filings (10-K, 10-Q, etc.) and earnings call transcripts using metadata filters and semantic relevance.
+    Uses parallel RAG-fusion across Weaviate stores.
     """
-    filter_common_conditions = []
-    now = datetime.now()
-
+    # Parse inputs
     ticker = kwargs.get("ticker")
-    filling_type = kwargs.get("filling_type")
+    filling_types = kwargs.get("filling_type") or []
     quarter = kwargs.get("quarter")
     date_from = kwargs.get("date_from")
     date_to = kwargs.get("date_to")
     last_n_years = kwargs.get("last_n_years")
     desc = kwargs.get("desc") or ""
 
-    query_variants = generate_query_variants(desc, llm)
-    print("Query Variants:", query_variants)
+    # Build common Weaviate filter dicts
+    now = datetime.now()
+    common_conds = []
 
-    # ── Date filters: use DatetimeRange for ISO-8601 / datetime filtering ─────────
+    # Date range
     if last_n_years:
         start = datetime(now.year - last_n_years, 1, 1)
-        filter_common_conditions.append(
-            FieldCondition(
-                key="date",
-                range=DatetimeRange(
-                    gte=start.isoformat() + "Z",
-                    lte=now.isoformat() + "Z"
-                )
-            )
+        common_conds.append(
+            Filter.by_property("date")
+                .greater_than_equal(start.strftime("%Y-%m-%dT%H:%M:%SZ"))
         )
-    elif date_from or date_to:
-        dr_kwargs = {}
+    else:
         if date_from:
-            dr_kwargs["gte"] = date_from
+            common_conds.append(
+                Filter.by_property("date")
+                    .greater_than_equal(f"{date_from}T00:00:00Z")
+            )
         if date_to:
-            dr_kwargs["lte"] = date_to
-        filter_common_conditions.append(
-            FieldCondition(
-                key="date",
-                range=DatetimeRange(**dr_kwargs)
+            common_conds.append(
+                Filter.by_property("date")
+                    .less_than_equal(f"{date_to}T23:59:59Z")
             )
-        )
 
-    # ── Ticker filter ───────────────────────────────────────────────────────────────
+    # Ticker
     if ticker:
-        filter_common_conditions.append(
-            FieldCondition(
-                key="ticker",
-                match=MatchValue(value=ticker.upper())
-            )
+        common_conds.append(
+            Filter.by_property("ticker")
+                .equal(ticker.upper())
         )
 
-    # ── Filings‐specific filter ────────────────────────────────────────────────────
-    filings_conditions = list(filter_common_conditions)
-    if filling_type:
-        filings_conditions.append(
-            FieldCondition(
-                key="filling_type",
-                match=MatchAny(any=[ft.upper() for ft in filling_type])
+    # 2️⃣ Compose the specific filters
+    filings_filter = None
+    earnings_filter = None
+
+    if common_conds:
+        filings_conds = common_conds.copy()
+        if filling_types:
+            # scalar "IN" via OR of equals
+            eq_filters = [
+                Filter.by_property("filling_type").equal(ft.upper())
+                for ft in filling_types
+            ]
+            filings_conds.append(
+                Filter.any_of(eq_filters)
+            )  # any_of combines with OR :contentReference[oaicite:0]{index=0}
+
+        filings_filter = Filter.all_of(filings_conds)  # all_of combines with AND :contentReference[oaicite:1]{index=1}
+
+        # Earnings filter
+        earnings_conds = common_conds.copy()
+        if quarter:
+            earnings_conds.append(
+                Filter.by_property("quarter")
+                    .equal(quarter.upper())
             )
-        )
+        earnings_filter = Filter.all_of(earnings_conds)
+    
 
-    # ── Earnings‐specific filter ────────────────────────────────────────────────────
-    earnings_conditions = list(filter_common_conditions)
-    if quarter:
-        earnings_conditions.append(
-            FieldCondition(
-                key="quarter",
-                match=MatchValue(value=quarter.upper())
-            )
-        )
+    # Generate query variants
+    query_variants = generate_query_variants(desc, llm)
 
-    # ── Build final Filter objects ────────────────────────────────────────────────
-    filter_filings  = Filter(must=filings_conditions)
-    filter_earnings = Filter(must=earnings_conditions)
-
-    # Vector store tasks for parallel fetching
+    # Prepare vector store tasks
     vector_store_tasks = {
-        "filings": (vector_store_fillings, filter_filings),
-        "earnings": (vector_store_earnings, filter_earnings),
+        "filings": (vector_store_fillings, filings_filter),
+        "earnings": (vector_store_earnings, earnings_filter),
     }
 
-    # Fetch all documents using RAG Fusion
-    results = fetch_all_sources(vector_store_tasks, queries=query_variants)
-
+    # Fetch per-store fused results in parallel
+    results = fetch_all_sources(vector_store_tasks, queries=query_variants, k=5)
     filings_results = results.get("filings", [])
     earnings_results = results.get("earnings", [])
 
+    # Merge and global sort
     combined = filings_results + earnings_results
     combined_sorted = sorted(combined, key=lambda x: x[1], reverse=True)[:5]
 
     # Debug
-    print("Applied Filters (Filings):", filings_conditions)
-    print("Applied Filters (Earnings):", earnings_conditions)
+    print("Applied Filters (Filings):", filings_filter)
+    print("Applied Filters (Earnings):", earnings_filter)
     print("Combined Disclosure Results >>>>", combined_sorted)
 
     return format_docs(combined_sorted)
@@ -438,92 +423,73 @@ def get_company_disclosures(**kwargs) -> str:
 @tool(args_schema=NewsQueryInput)
 def get_news_articles(**kwargs) -> str:
     """
-    Retrieves news articles based on ticker, publisher, and date filters.
+    Retrieves news articles based on ticker, publisher, and date filters using Weaviate.
     Defaults to the last 7 days if no date is specified.
+    Uses RRF fusion across multiple reformulated queries.
     """
-
-
-    now = datetime.now()
-    filter_conditions = []
-
+    # Parse inputs
     ticker = kwargs.get("ticker")
     publisher = kwargs.get("publisher")
     date_from = kwargs.get("date_from")
     date_to = kwargs.get("date_to")
     desc = kwargs.get("desc") or ""
 
+    # Generate query variants
     query_variants = generate_query_variants(desc, llm)
-
     print("Query Variants:", query_variants)
 
-    # Build filters
+    # Build filters for Weaviate
+    now = datetime.now()
+    conds = []
+
+    # — Date range —
+    if date_from:
+        conds.append(
+            Filter.by_property("date")
+                  .greater_or_equal(f"{date_from}T00:00:00Z")
+        )
+    if date_to:
+        conds.append(
+            Filter.by_property("date")
+                  .less_than_equal(f"{date_to}T23:59:59Z")
+        )
+    if not (date_from or date_to):
+        week_ago = (now - timedelta(days=7)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        now_iso  =  now.strftime( "%Y-%m-%dT%H:%M:%SZ")
+        conds.extend([
+            Filter.by_property("date").greater_or_equal(week_ago),
+            Filter.by_property("date").less_than_equal(now_iso),
+        ])
+
+    # — Ticker —
     if ticker:
-        filter_conditions.append(
-            FieldCondition(
-                key="ticker",
-                match=MatchValue(value=ticker.upper())
-            )
+        conds.append(
+            Filter.by_property("ticker")
+                  .equal(ticker.upper())
         )
 
+    # — Publisher —
     if publisher:
-        filter_conditions.append(
-            FieldCondition(
-                key="publisher",
-                match=MatchText(text=publisher)  # approximate regex-like match
-            )
+        conds.append(
+            Filter.by_property("publisher")
+                  .equal(publisher)
         )
 
-    # Date Filters
-    if date_from and date_to:
-        filter_conditions.append(
-            FieldCondition(
-                key="date",
-                range=DatetimeRange(
-                    gte=date_from,   # e.g. "2025-04-22T15:47:48Z"
-                    lte=date_to      # e.g. "2025-04-29T15:47:48Z"
-                )
-            )
-        )
-    elif date_from:
-        filter_conditions.append(
-            FieldCondition(
-                key="date",
-                range=DatetimeRange(gte=date_from)
-            )
-        )
-    elif date_to:
-        filter_conditions.append(
-            FieldCondition(
-                key="date",
-                range=DatetimeRange(lte=date_to)
-            )
-        )
-    else:
-        week_ago = now - timedelta(days=7)
-        filter_conditions.append(
-            FieldCondition(
-                key="date",
-                range=DatetimeRange(
-                    gte=week_ago.isoformat() + "Z",
-                    lte=now.isoformat()      + "Z"
-                )
-            )
-        )
+    # 2️⃣ Combine with AND into a single Filter
+    news_filter = Filter.all_of(conds) if conds else None
 
-
-    # Final filter
-    filter_news = Filter(must=filter_conditions)
 
     # Perform retrieval
     results = rag_fusion_rrf(
         vector_store=vector_store_news,
         queries=query_variants,
         k=5,
-        filter=filter_news
+        filter=news_filter
     )
 
-    print("Filter Conditions Applied:", filter_conditions)
+    print("Filter Conditions Applied:", news_filter)
     print("Retrieved News Results >>>>", results)
+
 
     return format_docs(results)
 
@@ -670,4 +636,4 @@ async def query_handler(req: QueryRequest):
     return {"response": response}
 
 if __name__ == "__main__":
-    uvicorn.run("agentic_rag_parallel_rag_fusion_parallel_qdrant_2:app", host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run("agentic_rag_parallel_rag_fusion_parallel_weaviate:app", host="0.0.0.0", port=8000, reload=True) 

@@ -1,0 +1,98 @@
+PS C:\Users\hp\RAG_17-04-2025> & C:/Users/hp/RAG_17-04-2025/venv/Scripts/python.exe c:/Users/hp/RAG_17-04-2025/sample_rag3.py
+c:\Users\hp\RAG_17-04-2025\sample_rag3.py:18: LangChainDeprecationWarning: The class `Qdrant` was deprecated in LangChain 0.0.37 and will be removed in 1.0. An updated version of the class exists in the :class:`~langchain-qdrant package and should be used instead. To use it run `pip install -U :class:`~langchain-qdrant` and import as `from :class:`~langchain_qdrant import Qdrant``.
+  vector_store_fillings = QdrantVectorStore(
+
+Tuning «fillings»
+c:\Users\hp\RAG_17-04-2025\sample_rag3.py:78: DeprecationWarning: `search` method is deprecated and will be removed in the future. Use `query_points` instead.
+  client.search(
+ m=8, efc=100, ef=100 → p50=0.029s, p95=0.036s
+ m=8, efc=100, ef=200 → p50=0.020s, p95=0.026s
+ m=8, efc=100, ef=400 → p50=0.007s, p95=0.023s
+ m=8, efc=200, ef=100 → p50=0.026s, p95=0.028s
+ m=8, efc=200, ef=200 → p50=0.028s, p95=0.031s
+ m=8, efc=200, ef=400 → p50=0.023s, p95=0.035s
+ m=8, efc=400, ef=100 → p50=0.020s, p95=0.029s
+ m=8, efc=400, ef=200 → p50=0.017s, p95=0.024s
+ m=8, efc=400, ef=400 → p50=0.017s, p95=0.034s
+ m=16, efc=100, ef=100 → p50=0.021s, p95=0.033s
+ m=16, efc=100, ef=200 → p50=0.029s, p95=0.035s
+ m=16, efc=100, ef=400 → p50=0.027s, p95=0.028s
+ m=16, efc=200, ef=100 → p50=0.017s, p95=0.029s
+ m=16, efc=200, ef=200 → p50=0.018s, p95=0.042s
+ m=16, efc=200, ef=400 → p50=0.023s, p95=0.028s
+ m=16, efc=400, ef=100 → p50=0.019s, p95=0.032s
+ m=16, efc=400, ef=200 → p50=0.020s, p95=0.034s
+ m=16, efc=400, ef=400 → p50=0.027s, p95=0.032s
+ m=32, efc=100, ef=100 → p50=0.026s, p95=0.027s
+ m=32, efc=100, ef=200 → p50=0.019s, p95=0.033s
+ m=32, efc=100, ef=400 → p50=0.018s, p95=0.039s
+ m=32, efc=200, ef=100 → p50=0.020s, p95=0.039s
+ m=32, efc=200, ef=200 → p50=0.028s, p95=0.029s
+ m=32, efc=200, ef=400 → p50=0.021s, p95=0.038s
+ m=32, efc=400, ef=100 → p50=0.007s, p95=0.048s
+ m=32, efc=400, ef=200 → p50=0.018s, p95=0.030s
+ m=32, efc=400, ef=400 → p50=0.023s, p95=0.036s
+
+Tuning «earnings»
+ m=8, efc=100, ef=100 → p50=0.024s, p95=0.032s
+ m=8, efc=100, ef=200 → p50=0.017s, p95=0.019s
+ m=8, efc=100, ef=400 → p50=0.015s, p95=0.018s
+ m=8, efc=200, ef=100 → p50=0.024s, p95=0.028s
+ m=8, efc=200, ef=200 → p50=0.018s, p95=0.032s
+ m=8, efc=200, ef=400 → p50=0.019s, p95=0.021s
+ m=8, efc=400, ef=100 → p50=0.023s, p95=0.024s
+ m=8, efc=400, ef=200 → p50=0.016s, p95=0.025s
+ m=8, efc=400, ef=400 → p50=0.027s, p95=0.032s
+ m=16, efc=100, ef=100 → p50=0.016s, p95=0.040s
+ m=16, efc=100, ef=200 → p50=0.006s, p95=0.043s
+ m=16, efc=100, ef=400 → p50=0.016s, p95=0.024s
+ m=16, efc=200, ef=100 → p50=0.018s, p95=0.028s
+ m=16, efc=200, ef=200 → p50=0.022s, p95=0.032s
+ m=16, efc=200, ef=400 → p50=0.029s, p95=0.031s
+ m=16, efc=400, ef=100 → p50=0.018s, p95=0.032s
+ m=16, efc=400, ef=200 → p50=0.024s, p95=0.033s
+ m=16, efc=400, ef=400 → p50=0.016s, p95=0.017s
+ m=32, efc=100, ef=100 → p50=0.021s, p95=0.029s
+ m=32, efc=100, ef=200 → p50=0.019s, p95=0.037s
+ m=32, efc=100, ef=400 → p50=0.021s, p95=0.022s
+ m=32, efc=200, ef=100 → p50=0.028s, p95=0.029s
+ m=32, efc=200, ef=200 → p50=0.024s, p95=0.026s
+ m=32, efc=200, ef=400 → p50=0.025s, p95=0.027s
+ m=32, efc=400, ef=100 → p50=0.019s, p95=0.020s
+ m=32, efc=400, ef=200 → p50=0.026s, p95=0.029s
+ m=32, efc=400, ef=400 → p50=0.026s, p95=0.028s
+
+Tuning «news»
+ m=8, efc=100, ef=100 → p50=0.020s, p95=0.022s
+ m=8, efc=100, ef=200 → p50=0.026s, p95=0.036s
+ m=8, efc=100, ef=400 → p50=0.019s, p95=0.029s
+ m=8, efc=200, ef=100 → p50=0.026s, p95=0.026s
+ m=8, efc=200, ef=200 → p50=0.018s, p95=0.039s
+ m=8, efc=200, ef=400 → p50=0.028s, p95=0.032s
+ m=8, efc=400, ef=100 → p50=0.020s, p95=0.029s
+ m=8, efc=400, ef=200 → p50=0.020s, p95=0.039s
+ m=8, efc=400, ef=400 → p50=0.017s, p95=0.042s
+ m=16, efc=100, ef=100 → p50=0.018s, p95=0.024s
+ m=16, efc=100, ef=200 → p50=0.019s, p95=0.019s
+ m=16, efc=100, ef=400 → p50=0.029s, p95=0.031s
+ m=16, efc=200, ef=100 → p50=0.019s, p95=0.039s
+ m=16, efc=200, ef=200 → p50=0.023s, p95=0.031s
+ m=16, efc=200, ef=400 → p50=0.018s, p95=0.031s
+ m=16, efc=400, ef=100 → p50=0.022s, p95=0.025s
+ m=16, efc=400, ef=200 → p50=0.025s, p95=0.032s
+ m=16, efc=400, ef=400 → p50=0.019s, p95=0.039s
+ m=32, efc=100, ef=100 → p50=0.021s, p95=0.037s
+ m=32, efc=100, ef=200 → p50=0.007s, p95=0.021s
+ m=32, efc=100, ef=400 → p50=0.020s, p95=0.036s
+ m=32, efc=200, ef=100 → p50=0.026s, p95=0.027s
+ m=32, efc=200, ef=200 → p50=0.025s, p95=0.028s
+ m=32, efc=200, ef=400 → p50=0.025s, p95=0.027s
+ m=32, efc=400, ef=100 → p50=0.013s, p95=0.020s
+ m=32, efc=400, ef=200 → p50=0.026s, p95=0.036s
+ m=32, efc=400, ef=400 → p50=0.020s, p95=0.041s
+
+→ Best settings per collection (by p95 latency):
+ • fillings: m=8, ef_construct=100, ef=400, p95=0.023s
+ • earnings: m=16, ef_construct=400, ef=400, p95=0.017s
+ • news: m=16, ef_construct=100, ef=200, p95=0.019s
+ ,m=16,100 for ef an ef_construct
