@@ -25,7 +25,7 @@ import json
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import defaultdict
-
+import re
 import os
 load_dotenv()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
@@ -109,19 +109,49 @@ class Assistant:
 primary_assistant_prompt = ChatPromptTemplate.from_messages(
     [
         ("system", 
-     "You are a financial assistant that retrieves:\n"
-     "- SEC filings (10-K, 10-Q, 8-K),\n"
-     "- Earnings transcripts,\n"
-     "- News articles from verified sources,\n"
-     "using metadata filters and semantic search.\n\n"
-     "When answering the user query:\n"
-     "• Only mention **actual dates** or **time periods (e.g., Q2 2025)** if they are explicitly present in the document metadata or content.\n"
-     "• Never fabricate or guess a date — if a document has no clear date, describe it as 'undated' or 'no date provided'.\n"
-     "• Always include the **exact SEC filing type** (e.g., '10-Q'),\n"
-     "• Always **name the news source** (e.g., 'CNBC', 'Reuters') in the response\n"
-     "• Clearly cite whether the insight came from a **filing**, **earnings call**, or **news article**\n"
-     "• If available, include the **retrieved publication date** from metadata (e.g., 'Published on April 22, 2025').\n\n"
-     "Format your response in a professional tone, clearly distinguishing each source of information."
+     "You are a precise financial research assistant that retrieves and analyzes:\n"
+     "- SEC filings (10-K annual reports, 10-Q quarterly reports, 8-K current reports)\n"
+     "- Earnings call transcripts\n"
+     "- Financial news from verified sources\n\n"
+     
+     "QUERY GENERATION GUIDELINES:\n"
+     "1. When a user inquires about a company or financial topic:\n"
+     "   - Extract the primary entity (company name, ticker symbol)\n"
+     "   - Identify the specific information requested (financials, performance metrics, executive changes, etc.)\n"
+     "   - Determine the relevant time period (specific quarter, year, date range)\n"
+     "2. Generate specific search queries that include:\n"
+     "   - Both company name AND ticker symbol when known (e.g., 'Apple Inc. AAPL')\n"
+     "   - Specific document types needed (e.g., '10-K 2024', 'Q2 earnings transcript')\n"
+     "   - Explicit date ranges when applicable (e.g., 'between January 2025 and April 2025')\n"
+     "   - Specific financial metrics or events mentioned (e.g., 'revenue growth', 'CEO change')\n"
+     "3. Use precise Boolean operators (AND, OR, NOT) to refine results\n"
+     "4. For each query, clearly specify the appropriate database:\n"
+     "   - SEC EDGAR database for regulatory filings\n"
+     "   - Earnings call transcript repository\n"
+     "   - Verified financial news sources\n\n"
+     
+     "RESPONSE FORMATTING REQUIREMENTS:\n"
+     "• Begin with a concise summary of key findings (2-3 sentences)\n"
+     "• Organize information by source type (SEC Filings, Earnings Calls, News)\n"
+     "• Include ONLY dates that appear in the retrieved documents:\n"
+     "  - For SEC filings: Include both filing date and period covered (e.g., 'Filed on March 15, 2025, covering Q1 2025')\n"
+     "  - For earnings calls: Include the exact call date (e.g., 'Earnings call from April 28, 2025')\n"
+     "  - For news: Include the publication date (e.g., 'Published on April 30, 2025')\n"
+     "• NEVER present estimated or approximated dates - if a document lacks a clear date, explicitly state 'date not specified'\n"
+     "• For SEC filings: Always specify the exact filing type (10-K, 10-Q, 8-K) and the key sections referenced\n"
+     "• For news: Always include the specific source name (e.g., Bloomberg, CNBC, Reuters) and author when available\n"
+     "• Use direct quotes sparingly and only when particularly significant\n"
+     "• Present financial figures with appropriate context (YoY growth, industry comparison)\n"
+     "• Include a 'Data Limitations' section noting any gaps in the retrieved information\n\n"
+     
+     "ANALYSIS GUIDELINES:\n"
+     "• Distinguish clearly between factual information and analytical insights\n"
+     "• Highlight significant discrepancies between different information sources\n"
+     "• Note important trends across multiple reporting periods when visible\n"
+     "• Flag potential regulatory concerns or material events that may impact financial outlook\n"
+     "• Avoid speculative predictions unless explicitly requested\n\n"
+     
+     "Present all information in a professional, objective tone with logical organization and clear section headers."
     ),
         ("placeholder", "{messages}"),
     ]
@@ -151,19 +181,35 @@ class CompanyDisclosureQueryInput(LCBaseModel):
 def generate_query_variants(query: str, llm) -> List[str]:
     prompt = f"""
     You are helping to improve search relevance in a financial assistant system.
-
-    Given the user query: "{query}", generate 3 rephrased versions that:
-
+    
+    Given the user query: "{query}", generate only 3 rephrased versions that:
     1. Ask the same question in different ways
     2. Vary the phrasing enough to trigger different semantic matches
     3. Are optimized for retrieving financial documents
-
-    List each version on a new line, without numbering or extra formatting.
+    
+    IMPORTANT: Return ONLY the 3 rephrased queries, one per line, with no numbering, prefixes, or explanations.
+    For example, if the original query is "What are treasury bonds?", respond with exactly:
+    How do treasury bonds work?
+    Explain treasury bonds and their features
+    Treasury bonds definition and characteristics
     """
+    
     response = llm.invoke(prompt)
     raw_output = response.content.strip()
-    return [line.strip("-• ").strip() for line in raw_output.split("\n") if line.strip()]
-
+    
+    # Filter out empty lines and common formatting patterns
+    variants = [line.strip() for line in raw_output.split('\n') if line.strip()]
+    
+    # Remove any remaining bullet points, numbers, or other prefixes
+    cleaned_variants = []
+    for line in variants:
+        # Remove common prefixes like numbers, bullets, etc.
+        cleaned_line = re.sub(r'^[\d\-\.\•\*\s]+', '', line).strip()
+        if cleaned_line:
+            cleaned_variants.append(cleaned_line)
+    
+    # Return only up to the first 3 valid variants
+    return cleaned_variants[:3]
 
 # def rag_fusion_search(vector_store, queries, k=5, filter=None):
 #     results = []
@@ -365,7 +411,7 @@ def get_news_articles(**kwargs) -> str:
         filter["date"] = {"$lte": datetime.fromisoformat(date_to)}
     else:
         # ⏱️ Default to last 7 days
-        week_ago = now - timedelta(days=7)
+        week_ago = now - timedelta(days=14)
         filter["date"] = {"$gte": week_ago, "$lte": now}
 
     results = rag_fusion_rrf(vector_store_news, query_variants, k=5, filter=filter)
